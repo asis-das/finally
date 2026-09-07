@@ -1,5 +1,6 @@
 """Tests for MassiveDataSource (mocked)."""
 
+import asyncio
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -110,6 +111,94 @@ class TestMassiveDataSource:
 
         await source.add_ticker("AAPL")
         assert "AAPL" in source.get_tickers()
+
+    async def test_add_ticker_seeds_cache_immediately(self):
+        """When the poller is running, add_ticker triggers a targeted fetch
+        so the new ticker gets a price without waiting for the next poll."""
+        cache = PriceCache()
+        source = MassiveDataSource(
+            api_key="test-key", price_cache=cache, poll_interval=60.0
+        )
+        source._client = MagicMock()  # Simulate a running poller
+
+        fetched = []
+
+        def fake_fetch(tickers):
+            fetched.append(list(tickers))
+            return [_make_snapshot(t, 100.0, 1707580800000) for t in tickers]
+
+        with patch.object(source, "_fetch_snapshots", side_effect=fake_fetch):
+            await source.add_ticker("nvda")
+            # Let the fire-and-forget refresh task (which hops through a
+            # worker thread via asyncio.to_thread) finish.
+            for _ in range(50):
+                if cache.get_price("NVDA") is not None:
+                    break
+                await asyncio.sleep(0.01)
+
+        assert fetched == [["NVDA"]]  # Only the new ticker was fetched
+        assert cache.get_price("NVDA") == 100.0
+
+    async def test_add_duplicate_ticker_is_noop(self):
+        """Adding a ticker already tracked does not re-fetch or duplicate it."""
+        cache = PriceCache()
+        source = MassiveDataSource(api_key="test-key", price_cache=cache)
+        source._client = MagicMock()
+        source._tickers = ["AAPL"]
+
+        with patch.object(source, "_fetch_snapshots") as mock_fetch:
+            await source.add_ticker("aapl")
+            await asyncio.sleep(0)
+            mock_fetch.assert_not_called()
+        assert source.get_tickers() == ["AAPL"]
+
+    async def test_refresh_ticker_error_does_not_crash(self):
+        """A failed targeted fetch after add_ticker is swallowed."""
+        cache = PriceCache()
+        source = MassiveDataSource(api_key="test-key", price_cache=cache)
+        source._client = MagicMock()
+
+        with patch.object(source, "_fetch_snapshots", side_effect=Exception("boom")):
+            await source.add_ticker("AAPL")
+            for _ in range(10):
+                await asyncio.sleep(0.01)
+
+        assert "AAPL" in source.get_tickers()
+        assert cache.get_price("AAPL") is None
+
+    async def test_add_ticker_no_fetch_before_start(self):
+        """Before start(), add_ticker only queues the ticker (no client yet)."""
+        cache = PriceCache()
+        source = MassiveDataSource(api_key="test-key", price_cache=cache)
+
+        with patch.object(source, "_fetch_snapshots") as mock_fetch:
+            await source.add_ticker("AAPL")
+            await asyncio.sleep(0)
+            mock_fetch.assert_not_called()
+        assert "AAPL" in source.get_tickers()
+
+    async def test_poll_uses_ticker_snapshot(self):
+        """_poll_once passes a snapshot of the ticker list into the worker
+        thread rather than sharing the mutable list across the boundary."""
+        cache = PriceCache()
+        source = MassiveDataSource(
+            api_key="test-key", price_cache=cache, poll_interval=60.0
+        )
+        source._client = MagicMock()
+        source._tickers = ["AAPL", "GOOGL"]
+
+        seen = []
+
+        def fake_fetch(tickers):
+            seen.append(tickers)
+            # Mutating the source's list now must not affect this call's arg
+            source._tickers = ["AAPL"]
+            return []
+
+        with patch.object(source, "_fetch_snapshots", side_effect=fake_fetch):
+            await source._poll_once()
+
+        assert seen == [["AAPL", "GOOGL"]]
 
     async def test_add_ticker_uppercase_normalization(self):
         """Test that tickers are normalized to uppercase."""

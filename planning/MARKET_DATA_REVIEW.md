@@ -67,6 +67,12 @@ The design holds up well on a second read:
 
 ## 4. New Observations (not in the prior review)
 
+> **Update (2026-09-07):** Both observations below have since been addressed —
+> see `planning/MARKET_DATA_SUMMARY.md` items 12–13. `MassiveDataSource.add_ticker`
+> now fires a targeted single-ticker fetch so a newly-watched ticker is priced
+> immediately, and all access to `MassiveDataSource._tickers` is guarded by a
+> `threading.Lock` with an immutable snapshot passed into the worker thread.
+
 Nothing rises to "must fix." Two minor, genuinely new observations, both low severity:
 
 ### 4.1 `MassiveDataSource.add_ticker` doesn't seed the cache (Low)

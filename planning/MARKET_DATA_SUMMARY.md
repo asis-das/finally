@@ -46,7 +46,7 @@ MarketDataSource (ABC)
 
 ## Test Suite
 
-**90 tests, all passing.** 7 test modules in `backend/tests/market/`.
+**95 tests, all passing.** 7 test modules in `backend/tests/market/`.
 
 | Module | Tests | Coverage |
 |--------|-------|----------|
@@ -55,7 +55,7 @@ MarketDataSource (ABC)
 | test_simulator.py | 20 | simulator.py: 98% |
 | test_simulator_source.py | 10 | (integration tests) |
 | test_factory.py | 7 | factory.py: 100% |
-| test_massive.py | 13 | massive_client.py: 94% (API transport mocked) |
+| test_massive.py | 18 | massive_client.py: 94% (API transport mocked) |
 | test_stream.py | 12 | stream.py: 94% |
 
 Overall coverage: 97%.
@@ -83,6 +83,19 @@ A follow-up pass closed the review's remaining "nice to have" items:
     and correct on free-threaded Python (PEP 703)
 11. **Thread-safety and full-watchlist tests added** — concurrent writers against the cache,
     and a check that the 10-ticker correlation matrix stays positive definite
+
+A second independent re-review (`planning/MARKET_DATA_REVIEW.md`, 2026-09-07) verified
+all of the above and raised two low-severity observations, both now resolved:
+
+12. **`MassiveDataSource.add_ticker` seeds the cache immediately** — when the poller is
+    running, `add_ticker` now fires a targeted single-ticker snapshot fetch instead of
+    leaving the new ticker priceless for up to a full `poll_interval` (15s on the free
+    tier). Behaviour now matches `SimulatorDataSource.add_ticker`.
+13. **`MassiveDataSource._tickers` no longer shared across the thread boundary** — a
+    `threading.Lock` guards every read/write of the ticker list, and `_poll_once` passes
+    an immutable snapshot into the `asyncio.to_thread` worker rather than the live list.
+
+**Test suite: 95 tests, all passing. Overall coverage 97%.**
 
 ## Demo
 
