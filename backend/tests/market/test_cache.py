@@ -101,3 +101,62 @@ class TestPriceCache:
         cache = PriceCache()
         update = cache.update("AAPL", 190.12345)
         assert update.price == 190.12
+
+
+class TestPriceCacheThreadSafety:
+    """The cache is written from worker threads (Massive runs its REST client
+    via asyncio.to_thread), so concurrent writes must not lose updates."""
+
+    def test_concurrent_writes_do_not_lose_updates(self):
+        from threading import Thread
+
+        cache = PriceCache()
+        writes_per_thread = 500
+        tickers = ["AAPL", "GOOGL", "MSFT", "AMZN"]
+
+        def writer(ticker: str) -> None:
+            for i in range(writes_per_thread):
+                cache.update(ticker, 100.0 + i * 0.01)
+
+        threads = [Thread(target=writer, args=(t,)) for t in tickers]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert cache.version == writes_per_thread * len(tickers)
+        assert len(cache) == len(tickers)
+        for ticker in tickers:
+            assert cache.get_price(ticker) == round(100.0 + (writes_per_thread - 1) * 0.01, 2)
+
+    def test_concurrent_reads_during_writes_are_consistent(self):
+        from threading import Event, Thread
+
+        cache = PriceCache()
+        cache.update("AAPL", 190.0)
+        stop = Event()
+        errors: list[Exception] = []
+
+        def writer() -> None:
+            while not stop.is_set():
+                cache.update("AAPL", 190.0)
+
+        def reader() -> None:
+            try:
+                for _ in range(2000):
+                    snapshot = cache.get_all()
+                    # A snapshot must never expose a half-written entry
+                    assert snapshot["AAPL"].ticker == "AAPL"
+                    assert snapshot["AAPL"].price > 0
+            except Exception as exc:  # pragma: no cover - only on failure
+                errors.append(exc)
+
+        w = Thread(target=writer)
+        r = Thread(target=reader)
+        w.start()
+        r.start()
+        r.join()
+        stop.set()
+        w.join()
+
+        assert not errors

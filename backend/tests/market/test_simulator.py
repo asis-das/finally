@@ -1,5 +1,7 @@
 """Tests for GBMSimulator."""
 
+import pytest
+
 from app.market.seed_prices import SEED_PRICES
 from app.market.simulator import GBMSimulator
 
@@ -129,3 +131,35 @@ class TestGBMSimulator:
         if '.' in price_str:
             decimal_part = price_str.split('.')[1]
             assert len(decimal_part) <= 2
+
+
+class TestFullWatchlistCorrelation:
+    """The default 10-ticker correlation matrix must stay factorizable."""
+
+    def test_cholesky_succeeds_for_full_default_watchlist(self):
+        sim = GBMSimulator(tickers=list(SEED_PRICES))
+        assert sim._cholesky is not None
+        assert sim._cholesky.shape == (len(SEED_PRICES), len(SEED_PRICES))
+
+    def test_correlation_matrix_is_reconstructed_by_cholesky(self):
+        """L @ L.T must reproduce the correlation matrix (i.e. it is positive definite)."""
+        import numpy as np
+
+        tickers = list(SEED_PRICES)
+        sim = GBMSimulator(tickers=tickers)
+        reconstructed = sim._cholesky @ sim._cholesky.T
+
+        for i, t1 in enumerate(tickers):
+            assert reconstructed[i, i] == pytest.approx(1.0)
+            for j, t2 in enumerate(tickers):
+                if i != j:
+                    expected = GBMSimulator._pairwise_correlation(t1, t2)
+                    assert reconstructed[i, j] == pytest.approx(expected)
+        assert np.all(np.linalg.eigvals(reconstructed) > 0)
+
+    def test_full_watchlist_steps_without_error(self):
+        sim = GBMSimulator(tickers=list(SEED_PRICES))
+        for _ in range(100):
+            prices = sim.step()
+        assert set(prices) == set(SEED_PRICES)
+        assert all(p > 0 for p in prices.values())

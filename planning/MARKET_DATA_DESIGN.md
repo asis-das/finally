@@ -271,7 +271,8 @@ class PriceCache:
     @property
     def version(self) -> int:
         """Current version counter. Useful for SSE change detection."""
-        return self._version
+        with self._lock:
+            return self._version
 
     def __len__(self) -> int:
         with self._lock:
@@ -1039,14 +1040,16 @@ from .cache import PriceCache
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/stream", tags=["streaming"])
-
 
 def create_stream_router(price_cache: PriceCache) -> APIRouter:
     """Create the SSE streaming router with a reference to the price cache.
 
     This factory pattern lets us inject the PriceCache without globals.
+
+    A fresh APIRouter is built per call so that creating more than one app
+    (as tests do) never double-registers the /prices route.
     """
+    router = APIRouter(prefix="/api/stream", tags=["streaming"])
 
     @router.get("/prices")
     async def stream_prices(request: Request) -> StreamingResponse:
@@ -1207,11 +1210,9 @@ def get_market_source(request: Request) -> MarketDataSource:
 Reading the cache off `request.app.state` (rather than closing over a module-level global)
 keeps the app importable in tests without any background task running.
 
-**One caveat on `create_stream_router`:** `router` is a module-level `APIRouter`, and
-`create_stream_router()` registers `/prices` on it via closure. Calling it twice in one
-process registers the route twice. In production it's called exactly once from `lifespan`;
-in tests that need multiple app instances, either move the `APIRouter()` construction
-inside the factory or reuse a single app fixture.
+`create_stream_router()` builds a fresh `APIRouter` on every call, so constructing more
+than one app in a single process (as the test suite does) is safe — the `/prices` route is
+never registered twice.
 
 ---
 
@@ -1381,6 +1382,7 @@ boilerplate.
 | `test_simulator_source.py` | Async lifecycle: start seeds cache, loop writes, stop cancels, add/remove |
 | `test_massive.py` | Poll parsing with a mocked `RESTClient` — ms→s conversion, malformed snapshots, failure resilience |
 | `test_factory.py` | Env-var branching, including empty and whitespace-only keys |
+| `test_stream.py` | Router factory isolation; the SSE generator's retry directive, payload schema, version gating, disconnect handling |
 
 ### Simulator math
 
@@ -1545,26 +1547,57 @@ def test_key_selects_massive(monkeypatch):
     assert isinstance(create_market_data_source(PriceCache()), MassiveDataSource)
 ```
 
-### SSE integration
+### SSE generator
+
+The response body is an infinite generator, so it is exercised directly rather than through
+an ASGI test client — httpx's `ASGITransport` buffers the entire response and would never
+return for a stream that does not end. A stub request drives the disconnect check, which is
+what terminates the loop:
 
 ```python
-async def test_sse_emits_price_frames():
-    cache = PriceCache()
-    cache.update("AAPL", 190.0)
-    app = FastAPI()
-    app.include_router(create_stream_router(cache))
+class StubRequest:
+    """Minimal stand-in for starlette's Request."""
 
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        async with client.stream("GET", "/api/stream/prices") as response:
-            assert response.headers["content-type"].startswith("text/event-stream")
-            chunks = []
-            async for line in response.aiter_lines():
-                chunks.append(line)
-                if len(chunks) > 3:
-                    break
-    assert any(c.startswith("retry:") for c in chunks)
-    assert any(c.startswith("data:") and "AAPL" in c for c in chunks)
+    def __init__(self, disconnect_after: int = 1, client_host: str | None = "1.2.3.4"):
+        self._remaining = disconnect_after
+        self.client = type("Client", (), {"host": client_host})() if client_host else None
+        self.poll_count = 0
+
+    async def is_disconnected(self) -> bool:
+        self.poll_count += 1
+        if self._remaining <= 0:
+            return True
+        self._remaining -= 1
+        return False
+
+
+async def collect(cache: PriceCache, request: StubRequest) -> list[str]:
+    return [chunk async for chunk in _generate_events(cache, request, interval=0.01)]
+
+
+async def test_first_chunk_is_retry_directive():
+    chunks = await collect(PriceCache(), StubRequest(disconnect_after=1))
+    assert chunks[0] == "retry: 1000\n\n"
+
+
+async def test_unchanged_prices_produce_no_further_frames():
+    """Version-based change detection: no writes, no repeat payloads."""
+    cache = PriceCache()
+    cache.update("AAPL", 190.00)
+    frames = data_frames(await collect(cache, StubRequest(disconnect_after=5)))
+    assert len(frames) == 1
+
+
+async def test_empty_cache_sends_no_data_frames():
+    assert await collect(PriceCache(), StubRequest(disconnect_after=3)) == ["retry: 1000\n\n"]
+
+
+async def test_stops_when_client_disconnects():
+    cache = PriceCache()
+    cache.update("AAPL", 190.00)
+    request = StubRequest(disconnect_after=2)
+    await collect(cache, request)
+    assert request.poll_count == 3   # two False polls, then the disconnect
 ```
 
 ### Running
@@ -1576,10 +1609,10 @@ uv run pytest --cov=app --cov-report=term  # with coverage
 uv run ruff check .                        # lint
 ```
 
-Target: 100% on `models.py`, `cache.py`, `interface.py`, `seed_prices.py`, `factory.py`;
-high 90s on `simulator.py`. `massive_client.py` and `stream.py` stay lower because their
-outermost layers (real HTTP, a live ASGI stream) are exercised by mocks and one integration
-test rather than line-by-line.
+Current state: **90 tests, 97% overall coverage.** 100% on `models.py`, `cache.py`,
+`interface.py`, `seed_prices.py` and `factory.py`; 98% on `simulator.py`; 94% on
+`stream.py` and `massive_client.py` — the residual misses in those two are the outermost
+layers (a real HTTP round trip, a live ASGI socket) that mocks deliberately don't reach.
 
 ### Manual demo
 
@@ -1615,13 +1648,14 @@ frontend.
 | Cache read during a write | `threading.Lock` serializes; `get_all()` returns a shallow copy so callers can't be mutated mid-iteration |
 | Shutdown with in-flight poll | `stop()` cancels and awaits the task, absorbing `CancelledError` |
 
-Two known sharp edges, both benign today and worth remembering:
+Two earlier sharp edges have been closed and are worth recording so they don't come back:
 
-- **`PriceCache.version` reads without the lock.** An `int` read is atomic under CPython's
-  GIL. On a free-threaded build (PEP 703) this should take the lock like every other
-  accessor.
-- **Module-level `APIRouter` in `stream.py`.** See §11 — a second call to
-  `create_stream_router()` in the same process double-registers the route.
+- **`PriceCache.version` now reads under the lock** like every other accessor. An `int`
+  read is atomic under CPython's GIL, but the free-threaded build (PEP 703) offers no such
+  guarantee, and the inconsistency was an easy trap for the next reader.
+- **`stream.py` builds its `APIRouter` inside the factory.** It was previously a
+  module-level object, so a second `create_stream_router()` call in the same process
+  double-registered `/prices` — which blocked testing the endpoint at all.
 
 ---
 
