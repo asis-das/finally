@@ -6,6 +6,8 @@
 
 A complete market data subsystem in `backend/app/market/` (8 modules, ~500 lines) providing live price simulation and real market data via a unified interface.
 
+Design reference: `planning/MARKET_DATA_DESIGN.md`.
+
 ### Architecture
 
 ```
@@ -44,18 +46,19 @@ MarketDataSource (ABC)
 
 ## Test Suite
 
-**73 tests, all passing.** 6 test modules in `backend/tests/market/`.
+**90 tests, all passing.** 7 test modules in `backend/tests/market/`.
 
 | Module | Tests | Coverage |
 |--------|-------|----------|
 | test_models.py | 11 | models.py: 100% |
-| test_cache.py | 13 | cache.py: 100% |
-| test_simulator.py | 17 | simulator.py: 98% |
+| test_cache.py | 15 | cache.py: 100% |
+| test_simulator.py | 20 | simulator.py: 98% |
 | test_simulator_source.py | 10 | (integration tests) |
 | test_factory.py | 7 | factory.py: 100% |
-| test_massive.py | 13 | massive_client.py: 56% (expected — API methods mocked) |
+| test_massive.py | 13 | massive_client.py: 94% (API transport mocked) |
+| test_stream.py | 12 | stream.py: 94% |
 
-Overall coverage: 84%.
+Overall coverage: 97%.
 
 ## Code Review & Fixes Applied
 
@@ -68,6 +71,18 @@ A comprehensive code review identified 7 issues. All were resolved:
 5. **Correlation constants cleaned up** — removed unused `DEFAULT_CORR`, consolidated into `CROSS_GROUP_CORR`
 6. **Unused test imports removed** — `pytest`, `math`, `asyncio` cleaned from 4 test files
 7. **Massive test mocks fixed** — `source._client` set in tests, patches target correct names
+
+A follow-up pass closed the review's remaining "nice to have" items:
+
+8. **SSE endpoint tested** — `test_stream.py` drives `_generate_events` directly with a stub
+   request (httpx's `ASGITransport` buffers the whole response, so it cannot test an
+   endless stream). `stream.py` coverage 33% → 94%
+9. **`stream.py` router built per call** — was a module-level `APIRouter`, which
+   double-registered `/prices` if the factory ran twice and made the endpoint untestable
+10. **`PriceCache.version` reads under the lock** — consistent with every other accessor,
+    and correct on free-threaded Python (PEP 703)
+11. **Thread-safety and full-watchlist tests added** — concurrent writers against the cache,
+    and a check that the 10-ticker correlation matrix stays positive definite
 
 ## Demo
 
