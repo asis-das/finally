@@ -205,3 +205,8 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# FinAlly runtime database (the db/ directory itself is kept via .gitkeep)
+db/*.db
+db/*.db-shm
+db/*.db-wal
