@@ -2,5 +2,12 @@
   "enabledPlugins": {
     "context7@claude-plugins-official": true,
     "playwright@claude-plugins-official": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npm -v)",
+      "Bash(uv --version)",
+      "Bash(docker --version)"
+    ]
   }
 }
