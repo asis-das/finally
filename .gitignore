@@ -210,3 +210,7 @@ __marimo__/
 db/*.db
 db/*.db-shm
 db/*.db-wal
+
+# Stray tool artifacts
+.playwright-mcp/
+verify-*.png
