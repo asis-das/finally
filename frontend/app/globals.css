@@ -1,0 +1,148 @@
+@import "tailwindcss";
+
+@theme {
+  /* Ground: the brief's #0d1117, with a darker rail and a lifted panel face.
+     Never pure black. */
+  --color-deep: #090c11;
+  --color-ground: #0d1117;
+  --color-panel: #11161e;
+  --color-raised: #171e29;
+  --color-line: #1e2733;
+  --color-line-hi: #2c3846;
+
+  --color-ink: #dbe3ec;
+  --color-dim: #7f8c9c;
+  --color-mute: #556170;
+
+  /* Direction is the only place colour is allowed to mean something. */
+  --color-up: #26d07c;
+  --color-down: #ff4d5e;
+
+  /* Brand, fixed by the brief. */
+  --color-accent: #ecad0a;
+  --color-primary: #209dd7;
+  --color-secondary: #753991;
+  /* The brief's purple is unreadable as text on #0d1117; this is the lit form. */
+  --color-secondary-lit: #b184d4;
+
+  --font-sans: var(--font-barlow), "Segoe UI", system-ui, sans-serif;
+  --font-cond: var(--font-barlow-cond), var(--font-barlow), "Segoe UI", system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), "Cascadia Mono", "Consolas", ui-monospace, monospace;
+
+  --radius-xs: 2px;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    background: var(--color-deep);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Every numeral in this app is a column of a table, even when it isn't. */
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line-hi);
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  :focus-visible {
+    outline: 1px solid var(--color-primary);
+    outline-offset: 1px;
+  }
+
+  input,
+  button {
+    font: inherit;
+  }
+}
+
+@layer utilities {
+  /* Panel chrome: a hairline label strip, not a card header. */
+  .panel-title {
+    font-family: var(--font-cond);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--color-dim);
+  }
+
+  .col-head {
+    font-family: var(--font-cond);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--color-mute);
+  }
+
+  .flash-up {
+    animation: flash-up 450ms ease-out;
+  }
+  .flash-down {
+    animation: flash-down 450ms ease-out;
+  }
+}
+
+/* Every ticker reprices twice a second, so the flash has to register at a
+   glance without turning the whole column into a strobe. */
+@keyframes flash-up {
+  0% {
+    background-color: color-mix(in srgb, var(--color-up) 15%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes flash-down {
+  0% {
+    background-color: color-mix(in srgb, var(--color-down) 15%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.dot-live {
+  animation: pulse-dot 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flash-up,
+  .flash-down,
+  .dot-live {
+    animation-duration: 1ms;
+    animation-iteration-count: 1;
+  }
+}
