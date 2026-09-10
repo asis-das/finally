@@ -1,0 +1,21 @@
+# Normalise line endings. Without this, core.autocrlf on Windows checks these
+# files out with CRLF, and a CRLF shell script fails on macOS/Linux with an
+# opaque "bad interpreter: /bin/sh^M". The Dockerfile and its RUN lines are
+# executed by a Linux shell too, so it gets the same treatment.
+* text=auto
+
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.sql           text eol=lf
+
+# PowerShell is Windows-side; CRLF is correct there.
+*.ps1           text eol=crlf
+
+# Never touch these.
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff binary
+*.woff2 binary
