@@ -1,0 +1,56 @@
+sprite sessions - Manage running exec sessions
+
+Why Sessions?
+  When you run a command with `sprite exec`, it becomes a session you can
+  monitor, reattach to, or kill later.
+
+  TTY sessions (interactive shells) keep running after detach. Non-TTY sessions
+  suspend on detach to preserve output — they resume when you reattach.
+
+  Active sessions keep your sprite alive — it won't pause while a TTY session
+  is generating output.
+
+Usage:
+  sprite sessions <subcommand>
+
+Subcommands:
+  list, ls     List running sessions
+  attach <id>  Attach to a session
+  kill <id>    Kill a session
+
+Options:
+  -o, --org <name>       Specify organization
+  -s, --sprite <name>    Specify sprite
+  -h, --help             Show this help message
+
+Examples:
+  sprite sessions list               # List running sessions
+  sprite s ls                        # Short form
+  sprite sessions attach 12345       # Attach to session 12345
+  sprite sessions kill 12345         # Kill session 12345
+  sprite sessions kill 12345 --signal INT --timeout 5s
+
+Common Workflow:
+  # Start a dev server (detach with Ctrl+\)
+  sprite exec -tty npm run dev
+
+  # Check what's running
+  sprite sessions list
+
+  # Reattach to see its output
+  sprite sessions attach 12345
+
+  # Detach again with Ctrl+\
+
+  # Done with it
+  sprite sessions kill 12345
+
+When to Use:
+  - `sprite sessions attach <id>` — reattach by numeric session ID
+  - `sprite attach <command>` — smart match by command name (e.g., `sprite attach bash`)
+  - `sprite console` — start a new interactive shell session
+
+Related Commands:
+  sprite exec --help        Run commands
+  sprite attach --help      Smart-attach by session ID or command name
+  sprite console --help     Open a new interactive shell
