@@ -1,0 +1,15 @@
+{
+  "name": "finally-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "test": "playwright test",
+    "typecheck": "tsc --noEmit",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.58.0",
+    "@types/node": "^22.20.2",
+    "typescript": "^5.9.3"
+  }
+}

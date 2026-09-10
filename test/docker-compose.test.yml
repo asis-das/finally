@@ -1,0 +1,64 @@
+# FinAlly E2E stack — app + Playwright, isolated from your real data.
+#
+#   docker compose -f test/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
+#   docker compose -f test/docker-compose.test.yml down -v
+#
+# Context is the repo root (..) so the app image is the production Dockerfile,
+# not a test-only build. The database lives in a compose-managed volume that
+# `down -v` throws away, which is what makes FRESH_DB=1 true here.
+
+name: finally-e2e
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: finally:latest
+    environment:
+      # Explicit, never inherited from the root .env: the suite is specified
+      # against the simulator and the deterministic mock assistant.
+      LLM_MOCK: "true"
+      MASSIVE_API_KEY: ""
+      OPENROUTER_API_KEY: ""
+      FINALLY_DB_PATH: /app/db/finally.db
+      FINALLY_STATIC_DIR: /app/static
+    volumes:
+      - e2e-db:/app/db
+    # Published for eyeballing a failure; the Playwright container talks to
+    # http://app:8000 over the compose network regardless.
+    ports:
+      - "8001:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  tests:
+    image: mcr.microsoft.com/playwright:v1.58.0-noble
+    depends_on:
+      app:
+        condition: service_healthy
+    working_dir: /work
+    environment:
+      BASE_URL: http://app:8000
+      FRESH_DB: "1"
+      CI: "true"
+    volumes:
+      - .:/work-src:ro
+      - ./playwright-report:/work/playwright-report
+      - ./test-results:/work/test-results
+    # node_modules is installed inside the container: the host tree holds Windows
+    # binaries, which will not execute on noble.
+    command: >
+      bash -ceu '
+        cp -r /work-src/package.json /work-src/package-lock.json /work-src/playwright.config.ts /work-src/tsconfig.json /work/ &&
+        cp -r /work-src/e2e /work-src/fixtures /work/ &&
+        npm ci --no-audit --no-fund &&
+        npx playwright test
+      '
+
+volumes:
+  e2e-db:
