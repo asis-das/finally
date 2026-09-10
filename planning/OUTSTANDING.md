@@ -12,41 +12,40 @@ State as of 2026-09-10, end of the agent-team build session. Everything below is
 | Database (`app/db/`) | Complete, 43 tests |
 | API + portfolio service | Complete, verified live |
 | AI assistant (`app/llm/`) | Complete, verified live and mocked |
-| Frontend | Complete except D-6 below |
+| Frontend | Complete; D-6 and D-3 fixed, 71 tests |
 | Docker + scripts | Complete, verified end to end |
 | E2E (`test/`) | 37 tests, 8/8 scenarios green |
 
-Backend: **358 tests**, ruff clean. Frontend: 63 tests, build/lint/types clean.
+Backend: **358 tests**, ruff clean. Frontend: **71 tests**, build/lint/types clean.
 E2E: 37 tests green against both a local uvicorn and the container.
 
-## 1. D-6 — watchlist shows session change, not daily change
+## 1. D-6 and D-3 — FIXED (2026-09-10)
 
-**Uncommitted work in progress sits in the working tree** —
-`frontend/components/Watchlist.tsx` and three test files. Finish or discard it
-before starting anything else.
+Both closed and verified. `WatchlistEntry` now declares `previous_close`,
+`day_change` and `day_change_percent`, and the watchlist renders
+`day_change_percent`; the flash animation still runs off the SSE tick, never the
+day figure. `lib/api.ts` gained `errorDetail()`, which joins the `msg` fields of
+a FastAPI 422 array instead of dropping them.
 
-PLAN.md §10 requires a daily change %. The frontend was computing
-`(last − first) / first` over sparkline points accumulated since page load,
-because when it was written the payload carried only tick-over-tick
-`change_percent`. The backend later gained `previous_close`, `day_change` and
-`day_change_percent` (see `app/services/reference_prices.py`) but the frontend
-was never told, so the fields were dead payload.
+Verified live: AAPL `-0.23%` (`Since 190.00`), MSFT `-2.95%`, TSLA `-10.02%`,
+against tick `change_percent` of `0.00` for the same rows. Before the fix every
+row read `≈+0.00%`.
 
-Wrong on every row, for every user, on every load. The fix in flight adds the
-fields to `WatchlistEntry` and renders `day_change_percent`, keeping
-tick-over-tick for the flash animation only — do not switch the flash to the
-day figure or it will latch.
+**The built image predates this.** `.\scripts\start_windows.ps1 -Build` to
+refresh it — the image bakes `frontend/out` in at build time by design, so a
+running container always serves a snapshot rather than the live directory.
 
-**The image currently built does not contain this fix.** Rebuild with
-`.\scripts\start_windows.ps1 -Build`.
+### Open trade-off worth a decision
 
-## 2. D-3 — 422 errors render as "Request failed (422)"
+The day figure is only as fresh as the last `/api/watchlist` fetch, and the
+watchlist is re-fetched on load and after a mutation. So between trades the
+percentage column sits still while prices move — measured ~0.05pp of drift over
+5 seconds on TSLA, and larger over a long idle session.
 
-`frontend/lib/api.ts` `request()` adopts `body.detail` only when it is a string.
-FastAPI 422s carry an array of objects, so the real message is lost. Currently
-unreachable — the `TradeBar` quantity guard and `isValidTicker` block both paths
-— but it is a trap for whoever removes a guard. Fix may be included in the
-in-flight work above.
+The alternative is recomputing in the client from the live tick against the
+backend's `previous_close`: same arithmetic, same shared reference, current with
+the tape. It was not done because an exact-match E2E assertion would break under
+a live-recomputed value. Roughly a three-line change if wanted.
 
 ## 3. D-4 — unknown tickers are addable and tradeable (product decision)
 

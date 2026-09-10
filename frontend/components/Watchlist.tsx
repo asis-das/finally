@@ -17,12 +17,15 @@ interface WatchlistProps {
   onRemove: (ticker: string) => Promise<void>;
 }
 
-/** Session move: how far the price has travelled since this page loaded. */
-function sessionPercent(points: PricePoint[], fallback: number): number {
-  if (points.length < 2) return fallback;
-  const first = points[0].p;
-  if (!first) return fallback;
-  return ((points[points.length - 1].p - first) / first) * 100;
+/**
+ * The daily move, as the backend measures it against `previous_close`. A ticker
+ * that has never been priced has no reference, so it reads flat rather than as
+ * a number we cannot stand behind.
+ */
+function dayPercent(entry: WatchlistEntry): number | null {
+  if (entry.previous_close === null || entry.previous_close === undefined) return null;
+  const value = entry.day_change_percent;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function Row({
@@ -41,7 +44,7 @@ function Row({
   onRemove: () => void;
 }) {
   const flash = useFlash(price);
-  const change = sessionPercent(points, entry.change_percent ?? 0);
+  const change = dayPercent(entry);
 
   return (
     <div
@@ -67,7 +70,14 @@ function Row({
         <div className="truncate text-[13px] leading-tight font-semibold">
           {entry.ticker}
         </div>
-        <div className={`num text-[10.5px] leading-tight ${toneClass(change)}`}>
+        <div
+          className={`num text-[10.5px] leading-tight ${toneClass(change ?? 0)}`}
+          title={
+            entry.previous_close === null || entry.previous_close === undefined
+              ? "No reference price yet"
+              : `Since ${formatPrice(entry.previous_close)}`
+          }
+        >
           {formatPercent(change)}
         </div>
       </div>

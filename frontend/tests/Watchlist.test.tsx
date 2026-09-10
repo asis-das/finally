@@ -38,6 +38,62 @@ describe("Watchlist", () => {
     expect(screen.getByTestId("watchlist-price-JPM")).toHaveTextContent("—");
   });
 
+  it("shows the backend's daily move, not a since-page-load figure", () => {
+    // History that would read as +5.8% if the row computed its own session move.
+    renderWatchlist({
+      history: { AAPL: seriesFor("AAPL", [182.0, 188.0, 192.5]) },
+    });
+
+    const row = screen.getByTestId("watchlist-row-AAPL");
+    expect(row).toHaveTextContent("+1.32%");
+    expect(row).not.toHaveTextContent("5.7");
+    expect(screen.getByTestId("watchlist-row-NVDA")).toHaveTextContent("-5.44%");
+  });
+
+  it("holds the day figure steady while ticks keep arriving", () => {
+    const { rerender, props } = renderWatchlist();
+    expect(screen.getByTestId("watchlist-row-AAPL")).toHaveTextContent("+1.32%");
+
+    rerender(
+      <Watchlist
+        {...props}
+        prices={{ ...priceMap, AAPL: { ...priceMap.AAPL, price: 199.9 } }}
+        history={{ AAPL: seriesFor("AAPL", [192.5, 196.0, 199.9]) }}
+      />,
+    );
+    // The tape moved; the daily figure only changes when the API says so.
+    expect(screen.getByTestId("watchlist-row-AAPL")).toHaveTextContent("+1.32%");
+  });
+
+  it("reads flat, never NaN, when the ticker has no reference price", () => {
+    renderWatchlist();
+    const cell = screen.getByTitle("No reference price yet");
+    expect(cell).toHaveTextContent("—");
+    expect(screen.getByTestId("watchlist-row-JPM")).not.toHaveTextContent("NaN");
+    expect(screen.getByTestId("watchlist-row-JPM")).not.toHaveTextContent("%");
+  });
+
+  it("names the reference the daily move is measured against", () => {
+    renderWatchlist();
+    expect(screen.getByTitle("Since 190.00")).toHaveTextContent("+1.32%");
+  });
+
+  it("falls back to flat when the backend omits the daily fields entirely", () => {
+    const legacy = {
+      ticker: "AAPL",
+      price: 192.5,
+      previous_price: 192.45,
+      change: 0.05,
+      change_percent: 0.03,
+      direction: "up",
+    } as unknown as (typeof watchlist)[number];
+
+    renderWatchlist({ entries: [legacy] });
+    const row = screen.getByTestId("watchlist-row-AAPL");
+    expect(row).toHaveTextContent("—");
+    expect(row).not.toHaveTextContent("NaN");
+  });
+
   it("flashes green on an uptick and red on a downtick, then clears", async () => {
     vi.useFakeTimers();
     const { rerender } = render(

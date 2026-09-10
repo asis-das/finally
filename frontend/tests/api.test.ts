@@ -61,6 +61,45 @@ describe("api client", () => {
     });
   });
 
+  it("surfaces the message from FastAPI's 422 validation array", async () => {
+    mockFetch(
+      {
+        detail: [
+          {
+            type: "greater_than",
+            loc: ["body", "quantity"],
+            msg: "Input should be greater than 0",
+            input: 0,
+          },
+        ],
+      },
+      { status: 422 },
+    );
+    await expect(api.trade("AAPL", 0, "buy")).rejects.toThrow(
+      "Input should be greater than 0",
+    );
+  });
+
+  it("joins a multi-field 422 rather than dropping all but one", async () => {
+    mockFetch(
+      {
+        detail: [
+          { loc: ["body", "quantity"], msg: "Input should be greater than 0" },
+          { loc: ["body", "side"], msg: "Input should be 'buy' or 'sell'" },
+        ],
+      },
+      { status: 422 },
+    );
+    await expect(api.trade("AAPL", 0, "buy")).rejects.toThrow(
+      "Input should be greater than 0; Input should be 'buy' or 'sell'",
+    );
+  });
+
+  it("keeps the generic message when a 422 array carries no usable msg", async () => {
+    mockFetch({ detail: [{ loc: ["body"] }, "not an object"] }, { status: 422 });
+    await expect(api.trade("AAPL", 0, "buy")).rejects.toThrow("Request failed (422)");
+  });
+
   it("falls back to a generic message for a non-JSON error body", async () => {
     vi.stubGlobal(
       "fetch",

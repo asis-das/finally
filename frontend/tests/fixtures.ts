@@ -51,10 +51,13 @@ export const watchlist: WatchlistEntry[] = [
   {
     ticker: "AAPL",
     price: 192.5,
-    previous_price: 192.0,
-    change: 0.5,
-    change_percent: 0.26,
+    previous_price: 192.45,
+    change: 0.05,
+    change_percent: 0.03,
     direction: "up",
+    previous_close: 190.0,
+    day_change: 2.5,
+    day_change_percent: 1.32,
   },
   {
     ticker: "NVDA",
@@ -63,7 +66,11 @@ export const watchlist: WatchlistEntry[] = [
     change: -0.7,
     change_percent: -0.59,
     direction: "down",
+    previous_close: 125.0,
+    day_change: -6.8,
+    day_change_percent: -5.44,
   },
+  // Never priced: no reference, so no daily move to report.
   {
     ticker: "JPM",
     price: null,
@@ -71,6 +78,9 @@ export const watchlist: WatchlistEntry[] = [
     change: 0,
     change_percent: 0,
     direction: "flat",
+    previous_close: null,
+    day_change: 0,
+    day_change_percent: 0,
   },
 ];
 
